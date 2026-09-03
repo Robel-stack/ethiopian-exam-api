@@ -45,17 +45,20 @@ async def upload_textbook(file: UploadFile = File(...), subject: str = Form("Phy
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     chunks_added = 0
 
-    for page_idx in range(len(doc)):
+    # ሰርቨሩ ሜሞሪ ሞልቶ እንዳይዘጋ እስከ ገጽ 40 ያሉትን ጠቃሚ ትምህርቶች ብቻ ይወስዳል
+    max_pages = min(len(doc), 40)
+
+    for page_idx in range(max_pages):
         page_num = page_idx + 1
-        if page_num > 7:
+        if page_num > 8:
             text = doc[page_idx].get_text("text").strip().replace("\n", " ")
-            if len(text.split()) >= 35:
+            if len(text.split()) >= 30:
                 CURRICULUM_INDEX.append({
                     "chunk_id": str(uuid.uuid4())[:8],
                     "subject": subject,
                     "grade_level": grade,
                     "page_number": page_num,
-                    "text": text[:900]
+                    "text": text[:800]
                 })
                 chunks_added += 1
 
