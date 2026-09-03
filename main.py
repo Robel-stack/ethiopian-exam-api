@@ -98,7 +98,7 @@ def generate_exam(req: ExamRequest):
             break
 
         prompt = f"Textbook excerpt (Page {chunk['page_number']}):\n{chunk['text']}\nGenerate one EUEE multiple-choice question."
-        for model_name in ["gemini-flash-lite-latest", "gemini-flash-latest"]:
+        for model_name in ["gemini-2.5-flash", "gemini-1.5-flash"]:
             try:
                 res = client.models.generate_content(
                     model=model_name,
