@@ -2,8 +2,9 @@ import os
 import json
 import uuid
 import random
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from google import genai
 from google.genai import types
@@ -122,3 +123,8 @@ def generate_exam(req: ExamRequest):
         "total_items": len(assembled_items),
         "questions": assembled_items
     }
+    @app.get("/")
+def root():
+    if os.path.exists("index.html"):
+        return FileResponse("index.html")
+    return {"status": "running", "indexed_chunks": len(CURRICULUM_INDEX)}
