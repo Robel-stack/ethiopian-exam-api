@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EUEE Practice Portal</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 2rem; }
+    .container { max-width: 720px; margin: auto; background: #1e293b; padding: 2rem; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+    h1 { margin-top: 0; color: #38bdf8; text-align: center; }
+    .controls { display: flex; gap: 10px; margin-bottom: 2rem; justify-content: center; }
+    select, button { padding: 10px 16px; border-radius: 6px; border: none; font-size: 1rem; }
+    select { background: #334155; color: white; }
+    button { background: #0284c7; color: white; cursor: pointer; font-weight: 600; }
+    button:hover { background: #0369a1; }
+    .card { background: #334155; padding: 1.2rem; border-radius: 8px; margin-bottom: 1.5rem; }
+    .option-label { display: block; margin: 8px 0; cursor: pointer; padding: 8px 12px; border-radius: 6px; background: #1e293b; transition: 0.2s; }
+    .option-label:hover { background: #475569; }
+    .result { margin-top: 1rem; font-weight: bold; text-align: center; font-size: 1.2rem; }
+    .explanation { margin-top: 8px; font-size: 0.9rem; color: #cbd5e1; display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>EUEE Online Exam Simulator</h1>
+    <div class="controls">
+      <select id="subject">
+        <option value="Physics">Physics</option>
+        <option value="Chemistry">Chemistry</option>
+        <option value="Biology">Biology</option>
+      </select>
+      <button id="gen-btn" onclick="fetchExam()">Generate Exam</button>
+    </div>
+
+    <div id="quiz-area"></div>
+    <div id="submit-area" style="display:none; text-align:center;">
+      <button onclick="calculateScore()">Submit Answers</button>
+    </div>
+    <div id="result" class="result"></div>
+  </div>
+
+  <script>
+    let currentQuestions = [];
+
+    async function fetchExam() {
+      const btn = document.getElementById("gen-btn");
+      const quizArea = document.getElementById("quiz-area");
+      const resultArea = document.getElementById("result");
+      const sub = document.getElementById("subject").value;
+      
+      btn.innerText = "Generating...";
+      btn.disabled = true;
+      quizArea.innerHTML = "";
+      resultArea.innerText = "";
+      document.getElementById("submit-area").style.display = "none";
+
+      try {
+        const res = await fetch("/api/v1/exams/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subject: sub, total_questions: 3, grade_level: 12 })
+        });
+        const data = await res.json();
+        currentQuestions = data.questions || [];
+
+        currentQuestions.forEach((q, idx) => {
+          let opts = "";
+          for (const [key, val] of Object.entries(q.options)) {
+            opts += `
+              <label class="option-label">
+                <input type="radio" name="q_${idx}" value="${key}" />
+                <strong>${key}:</strong> ${val}
+              </label>
+            `;
+          }
+          quizArea.innerHTML += `
+            <div class="card" id="card_${idx}">
+              <p><strong>${idx + 1}. ${q.question}</strong></p>
+              ${opts}
+              <div class="explanation" id="exp_${idx}">
+                <em>Answer: ${q.correct_answer}</em> - ${q.rubric_explanation}
+              </div>
+            </div>
+          `;
+        });
+        if (currentQuestions.length > 0) {
+          document.getElementById("submit-area").style.display = "block";
+        }
+      } catch (err) {
+        alert("Failed to load exam: " + err);
+      } finally {
+        btn.innerText = "Generate Exam";
+        btn.disabled = false;
+      }
+    }
+
+    function calculateScore() {
+      let score = 0;
+      currentQuestions.forEach((q, idx) => {
+        const selected = document.querySelector(`input[name="q_${idx}"]:checked`);
+        const exp = document.getElementById(`exp_${idx}`);
+        exp.style.display = "block";
+        if (selected && selected.value === q.correct_answer) {
+          score++;
+          document.getElementById(`card_${idx}`).style.border = "2px solid #22c55e";
+        } else {
+          document.getElementById(`card_${idx}`).style.border = "2px solid #ef4444";
+        }
+      });
+      document.getElementById("result").innerText = `Your Score: ${score} / ${currentQuestions.length}`;
+    }
+  </script>
+</body>
+</html>
