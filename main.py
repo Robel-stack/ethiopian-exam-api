@@ -25,7 +25,7 @@ def get_gemini_client():
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not set.")
-    return genai.Client(api_key=api_key.strip(), http_options=types.HttpOptions(api_version="v1"))
+    return genai.Client(api_key=api_key.strip())
 
 class ExamRequest(BaseModel):
     subject: str = "Physics"
@@ -45,20 +45,19 @@ async def upload_textbook(file: UploadFile = File(...), subject: str = Form("Phy
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     chunks_added = 0
 
-    # ሰርቨሩ ሜሞሪ ሞልቶ እንዳይዘጋ እስከ ገጽ 40 ያሉትን ጠቃሚ ትምህርቶች ብቻ ይወስዳል
     max_pages = min(len(doc), 40)
 
     for page_idx in range(max_pages):
         page_num = page_idx + 1
-        if page_num > 8:
+        if page_num > 5:
             text = doc[page_idx].get_text("text").strip().replace("\n", " ")
-            if len(text.split()) >= 30:
+            if len(text.split()) >= 25:
                 CURRICULUM_INDEX.append({
                     "chunk_id": str(uuid.uuid4())[:8],
                     "subject": subject,
                     "grade_level": grade,
                     "page_number": page_num,
-                    "text": text[:800]
+                    "text": text[:700]
                 })
                 chunks_added += 1
 
@@ -72,54 +71,50 @@ async def upload_textbook(file: UploadFile = File(...), subject: str = Form("Phy
 
 @app.post("/api/v1/exams/generate")
 def generate_exam(req: ExamRequest):
-    if not CURRICULUM_INDEX:
-        raise HTTPException(status_code=400, detail="No curriculum uploaded yet.")
-
-    pool = [c for c in CURRICULUM_INDEX if c["subject"].lower() == req.subject.lower()]
-    if not pool:
-        raise HTTPException(status_code=404, detail=f"No textbook content found for '{req.subject}'.")
-
     client = get_gemini_client()
-    selected_chunks = random.sample(pool, min(len(pool), req.total_questions * 2))
+    
+    # መጽሐፉ ገና ካልተጫነ በቀጥታ ከGemini አጠቃላይ የኢትዮጵያ Grade 12 ሥርዓተ-ትምህርት ጥያቄ ያወጣል
+    pool = [c for c in CURRICULUM_INDEX if c["subject"].lower() == req.subject.lower()]
+    
     assembled_items = []
-
-    system_instruction = f"""
-    You are an expert exam author for Ethiopian Secondary Education (Grade {req.grade_level} {req.subject}, EUEE standard).
-    Generate challenging 4-option multiple-choice questions.
-    Output MUST be valid JSON adhering strictly to:
-    {{
-        "question": "string",
-        "options": {{"A": "string", "B": "string", "C": "string", "D": "string"}},
-        "correct_answer": "A | B | C | D",
-        "rubric_explanation": "string",
-        "bloom_level": "Knowledge | Application | Analysis"
-    }}
+    
+    prompt = f"""
+    Create {req.total_questions} standard Ethiopian University Entrance Examination (EUEE) multiple choice questions for Grade {req.grade_level} {req.subject}.
+    Return ONLY a JSON list of objects with this schema:
+    [
+      {{
+        "question": "question text",
+        "options": {{"A": "option 1", "B": "option 2", "C": "option 3", "D": "option 4"}},
+        "correct_answer": "A",
+        "rubric_explanation": "explanation"
+      }}
+    ]
     """
+    
+    if pool:
+        selected = random.sample(pool, min(len(pool), req.total_questions))
+        context_text = "\n---\n".join([f"Page {c['page_number']}: {c['text']}" for c in selected])
+        prompt += f"\n\nUse the following textbook content as context:\n{context_text}"
 
-    for chunk in selected_chunks:
-        if len(assembled_items) >= req.total_questions:
-            break
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            temperature=0.7
+        )
+    )
 
-        prompt = f"Textbook excerpt (Page {chunk['page_number']}):\n{chunk['text']}\nGenerate one EUEE multiple-choice question."
-        for model_name in ["gemini-2.5-flash", "gemini-1.5-flash"]:
-            try:
-                res = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instruction,
-                        temperature=0.7,
-                        response_mime_type="application/json"
-                    )
-                )
-                item = json.loads(res.text)
-                item["item_number"] = len(assembled_items) + 1
-                item["subject"] = req.subject
-                item["page_reference"] = chunk["page_number"]
-                assembled_items.append(item)
-                break
-            except Exception:
-                continue
+    try:
+        raw_items = json.loads(response.text)
+        if isinstance(raw_items, dict) and "questions" in raw_items:
+            raw_items = raw_items["questions"]
+        for idx, item in enumerate(raw_items):
+            item["item_number"] = idx + 1
+            item["subject"] = req.subject
+            assembled_items.append(item)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse Gemini output: {str(e)} | Raw: {response.text}")
 
     return {
         "exam_id": f"ETH-{req.subject[:4].upper()}-{str(uuid.uuid4())[:6].upper()}",
