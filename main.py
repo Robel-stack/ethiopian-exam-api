@@ -35,8 +35,7 @@ class ExamRequest(BaseModel):
 
 @app.get("/")
 def root():
-    return {"status": "running", "indexed_chunks": len(CURRICULUM_INDEX)}
-
+    return FileResponse("index.html")
 @app.post("/api/v1/curriculum/upload")
 async def upload_textbook(file: UploadFile = File(...), subject: str = Form("Physics"), grade: int = Form(12)):
     if not file.filename.lower().endswith(".pdf"):
